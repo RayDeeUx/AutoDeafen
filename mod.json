@@ -1,0 +1,9 @@
+{
+  "description": "A standalone mod that automatically hits your deafen keybind when you reach a certain percentage. Configurable per-level.",
+  "developer": "Lynxdeer",
+  "gd": "2.204",
+  "geode": "2.0.0",
+  "id": "lynxdeer.autodeafen",
+  "name": "AutoDeafen",
+  "version": "v1.0.2"
+}
