@@ -43,21 +43,10 @@ ghc::filesystem::path getFilePath(GJGameLevel* lvl) {
 	return path;
 }
 
-void saveLevel(GJGameLevel* lvl, boolean enabled, boolean editor, int id, float percentage) {
+void saveLevel(AutoDeafenLevel lvl) {
 
-	
-	
-	for (AutoDeafenLevel& level : loadedAutoDeafenLevels) {
-		if (level.id == id) {
-			level.enabled = enabled;
-			level.editor = editor;
-			level.id = id;
-			level.percentage = percentage;
-			return;
-		}
-	}
-
-	loadedAutoDeafenLevels.push_back(AutoDeafenLevel(enabled, editor, id, percentage));
+	loadedAutoDeafenLevels.push_back(lvl);
+	lvl = AutoDeafenLevel();
 
 }
 
@@ -104,11 +93,10 @@ class $modify(PlayLayer) {
 		PlayLayer::updateProgressbar();
 
 		float percent = static_cast<float>(PlayLayer::getCurrentPercentInt());
-		if (percent > currentlyLoadedLevel.percentage) {
-			stringstream s;
-			s<<percent;
-			auto log = s.str();
-			log::info( log );
+		if (percent > currentlyLoadedLevel.percentage && percent != 100) {
+			
+		} else if (percent == 100) {
+
 		}
 
 	}
@@ -124,6 +112,12 @@ class $modify(PlayLayer) {
 			if (level.id == id && level.editor == editor) { currentlyLoadedLevel = level; return; }
 
 		currentlyLoadedLevel = AutoDeafenLevel(false, editor, id, 50);
+
+	}
+
+	void onQuit() {
+
+		
 
 	}
 	
