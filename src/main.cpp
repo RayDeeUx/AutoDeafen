@@ -12,11 +12,6 @@
 using namespace geode::prelude;
 using namespace std;
 
-AutoDeafenLevel currentlyLoadedLevel;
-list<AutoDeafenLevel> loadedAutoDeafenLevels;
-
-bool hasDeafenedThisAttempt = false;
-
 struct AutoDeafenLevel {
 	bool enabled = false;
 	bool editor = false;
@@ -28,7 +23,14 @@ struct AutoDeafenLevel {
 		id = c;
 		percentage = d;
 	}
+	AutoDeafenLevel() {}
 };
+
+
+AutoDeafenLevel currentlyLoadedLevel;
+list<AutoDeafenLevel> loadedAutoDeafenLevels;
+
+bool hasDeafenedThisAttempt = false;
 
 ghc::filesystem::path getFilePath(GJGameLevel* lvl) {
 
@@ -45,7 +47,7 @@ void saveLevel(GJGameLevel* lvl, boolean enabled, boolean editor, int id, float 
 
 	
 	
-	for (AutoDeafenLevel level : loadedAutoDeafenLevels) {
+	for (AutoDeafenLevel& level : loadedAutoDeafenLevels) {
 		if (level.id == id) {
 			level.enabled = enabled;
 			level.editor = editor;
@@ -103,7 +105,10 @@ class $modify(PlayLayer) {
 
 		float percent = static_cast<float>(PlayLayer::getCurrentPercentInt());
 		if (percent > currentlyLoadedLevel.percentage) {
-			log::info("DEAFEN TIME!!!");
+			stringstream s;
+			s<<percent;
+			auto log = s.str();
+			log::info( log );
 		}
 
 	}
