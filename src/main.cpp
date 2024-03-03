@@ -43,7 +43,7 @@ vector<AutoDeafenLevel> loadedAutoDeafenLevels;
 
 bool hasDeafenedThisAttempt = false;
 bool hasDied = false;
-uint32_t deafenKeybind[] = {0xA1, 0x48};
+uint32_t deafenKeybind[] = {0xA1, enumKeyCodes::KEY_L};
 
 void saveLevel(AutoDeafenLevel lvl) {
 
@@ -66,12 +66,12 @@ void saveFile() {
 	auto path = Mod::get() -> getSaveDir();
 	path /= ".autodeafen";
 
-	log::info("{}", "Saving file to " + path.string());
+	log::info("{}", "Saving .autodeafen file to " + path.string());
 
 	ofstream file(path);
 	if (file.is_open()) {
 
-		file.write("ad1", sizeof("ad1")); // Autodeafen file version 1
+		file.write("ad1", sizeof("ad1")); // File Header - autodeafen file version 1
 		for (AutoDeafenLevel const& a : loadedAutoDeafenLevels) {
 			file.write(reinterpret_cast<const char*>(&a.enabled), sizeof(bool));
 			file.write(reinterpret_cast<const char*>(&a.levelType), sizeof(short));
@@ -91,12 +91,12 @@ void loadFile() {
 	auto path = Mod::get() -> getSaveDir();
 	path /= ".autodeafen";
 
-	log::info("{}", "Loading file from " + path.string());
+	log::info("{}", "Loading .autodeafen file from " + path.string());
 
 	ifstream file(path, std::ios::binary);
 	if (file.is_open()) {
 
-		char header[4]; // Why tf is this 4??? wtf c++
+		char header[4]; // Why on earth is the length of "ad1" 4??? wtf c++
 		file.read(header, sizeof("ad1"));
 
 		if (strncmp(header, "ad1", 4) == 0) {
@@ -108,7 +108,7 @@ void loadFile() {
 				file.read(reinterpret_cast<char*>(&level.id), sizeof(int));
 				file.read(reinterpret_cast<char*>(&level.percentage), sizeof(int));
 				loadedAutoDeafenLevels.push_back(level);
-				log::debug("{} {} {} {}", level.id, level.levelType, level.enabled, level.percentage);
+				// log::debug("{} {} {} {}", level.id, level.levelType, level.enabled, level.percentage);
 			}
 		}
 
@@ -117,9 +117,30 @@ void loadFile() {
 		file.close();
 
 	} else {
-		log::warn("AutoDeafen file failed when trying to open and load. Will create a new one on exit.");
+		log::warn("AutoDeafen file failed when trying to open and load (probably just doesn't exist). Will create a new one on exit.");
 	}
 }
+
+$execute {
+	using namespace keybinds;
+	BindManager::get()->registerBindable({
+
+        "deafen"_spr,
+        "Deafen",
+        "Your discord deafen keybind.",
+        { Keybind::create(KEY_H, Modifier::Shift) },
+        "AutoDeafen"
+    });
+	
+	Bind* getDeafenKeybind() {
+		auto bind = BindManager::get()->loadBind("Deafen");
+		// auto key = bind.getKey();
+		return bind*;
+	}
+	
+	
+}
+
 
 class $modify(LoadingLayer) {
 	bool init(bool p0) {
@@ -129,20 +150,20 @@ class $modify(LoadingLayer) {
 	}
 };
 
-void playDeafenKeybind() {
+void triggerDeafenKeybind() {
 
 	if (currentlyLoadedLevel.enabled) {
-		log::info("Played deafen keybind.");
+		log::info("Triggered deafen keybind.");
 
 		// TODO - make this configurable
 
-		keybd_event(deafenKeybind[0], 0, 0x0000, 0);
+		keybd_event(deafenKeybind[0], 0, 0, 0);
 
-		keybd_event(deafenKeybind[1], 0, 0x0000, 0);
-		keybd_event(deafenKeybind[1], 0, 0x0002, 0);
+		keybd_event(deafenKeybind[1], 0, 0, 0);
+		keybd_event(deafenKeybind[1], 0, 2, 0);
 
 
-		keybd_event(deafenKeybind[0], 0, 0x0002, 0);
+		keybd_event(deafenKeybind[0], 0, 2, 0);
 	}
 
 
@@ -152,6 +173,8 @@ void playDeafenKeybind() {
 
 class $modify(PlayerObject) {
 	void playerDestroyed(bool p0) {
+
+		PlayerObject::playerDestroyed(p0);
 
 		if (this == nullptr) return;
 		
@@ -171,9 +194,9 @@ class $modify(PlayerObject) {
 
 		if (hasDeafenedThisAttempt && !hasDied) {
 			hasDied = true;
-			playDeafenKeybind();
+			triggerDeafenKeybind();
 		}
-		PlayerObject::playerDestroyed(p0);
+		
 	}
 };
 
@@ -212,7 +235,7 @@ class $modify(PlayLayer) {
 		// log::info("{}", percent);
 		if (percent >= currentlyLoadedLevel.percentage && percent != 100 && !hasDeafenedThisAttempt) {
 			hasDeafenedThisAttempt = true;
-			playDeafenKeybind();
+			triggerDeafenKeybind();
 		}
 
 	}
@@ -221,7 +244,7 @@ class $modify(PlayLayer) {
 		PlayLayer::levelComplete();
 		if (hasDeafenedThisAttempt) {
 			hasDeafenedThisAttempt = false;
-			playDeafenKeybind();
+			triggerDeafenKeybind();
 		}
 	}
 
@@ -230,6 +253,10 @@ class $modify(PlayLayer) {
 		saveLevel(currentlyLoadedLevel);
 		saveFile();
 		currentlyLoadedLevel = AutoDeafenLevel();
+		if (hasDeafenedThisAttempt) {
+			hasDeafenedThisAttempt = false;
+			triggerDeafenKeybind();
+		}
 	}
 	
 };
@@ -261,7 +288,7 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 
 			m_mainLayer -> addChild(menu);
 
-			auto topLabel = CCLabelBMFont::create("AutoDeafen", "bigFont.fnt"); 
+			auto topLabel = CCLabelBMFont::create("AutoDeafen", "goldFont.fnt"); 
 			topLabel->setAnchorPoint({0.5, 0.5});
 			topLabel->setScale(1.0f);
 			topLabel->setPosition(topLeftCorner + ccp(142, 5));
