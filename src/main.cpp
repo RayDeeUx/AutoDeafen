@@ -176,27 +176,16 @@ class $modify(PlayerObject) {
 
 		PlayerObject::playerDestroyed(p0);
 
-		if (this == nullptr) return;
-		
-		auto playLayer = PlayLayer::get();
-		if (playLayer == nullptr) return;
-
-		auto level = playLayer->m_level;
-		if (level == nullptr) return;
-
-		if (playLayer->m_player1 == nullptr) return; // Christ, really gotta do every null check possible for it not to crash
-		if (this != (playLayer->m_player1) ) return;
-
-		if (level->m_levelType == GJLevelType::Editor) return;
-		
-		if (level->isPlatformer()) return;
-		if (playLayer->m_isPracticeMode) return;
-
-		if (hasDeafenedThisAttempt && !hasDied) {
-			hasDied = true;
-			triggerDeafenKeybind();
-		}
-		
+		if (this != nullptr) {
+			auto playLayer = PlayLayer::get();
+			if (playLayer != nullptr) {
+				auto level = playLayer->m_level;
+				if (level != nullptr) {
+					if (playLayer->m_player1 != nullptr && this == (playLayer->m_player1) && (level->m_levelType != GJLevelType::Editor) && !(level->isPlatformer()) && !(playLayer->m_isPracticeMode)) {
+						if (hasDeafenedThisAttempt && !hasDied) {
+							hasDied = true;
+							triggerDeafenKeybind();
+						}}}}}
 	}
 };
 
