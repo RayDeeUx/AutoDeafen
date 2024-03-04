@@ -173,19 +173,24 @@ void triggerDeafenKeybind() {
 
 class $modify(PlayerObject) {
 	void playerDestroyed(bool p0) {
-
-		PlayerObject::playerDestroyed(p0);
-
 		if (this != nullptr) {
 			auto playLayer = PlayLayer::get();
 			if (playLayer != nullptr) {
 				auto level = playLayer->m_level;
 				if (level != nullptr) {
-					if (playLayer->m_player1 != nullptr && this == (playLayer->m_player1) && (level->m_levelType != GJLevelType::Editor) && !(level->isPlatformer()) && !(playLayer->m_isPracticeMode)) {
+					
+					// readability go brr
+					if (	playLayer->m_player1 != nullptr &&
+							this == (playLayer->m_player1) &&
+							(level->m_levelType != GJLevelType::Editor) &&
+							!(level->isPlatformer()) &&
+							!(playLayer->m_isPracticeMode)) {
+
 						if (hasDeafenedThisAttempt && !hasDied) {
 							hasDied = true;
 							triggerDeafenKeybind();
 						}}}}}
+		PlayerObject::playerDestroyed(p0);
 	}
 };
 
