@@ -15,20 +15,27 @@
 #include <Geode/cocos/cocoa/CCObject.h>
 #include <Geode/binding/CCMenuItemToggler.hpp>
 #include <Geode/ui/GeodeUI.hpp>
-#include "../build/bindings/bindings/Geode/binding/GJGameLevel.hpp"
+#include <Geode/binding/GJGameLevel.hpp>
 
 #include <cocos2d.h>
-#include "../../../LocalStuff/Geode/loader/include/Geode/ui/TextInput.hpp"
+#include <Geode/ui/TextInput.hpp>
+
+// #include <geode.custom-keybinds/include/Keybinds.hpp>
+// #include <../../build/geode-deps/geode.custom-keybinds/src/KeybindsLayer.hpp>
+
+#include <custom-keybinds/Keybinds.hpp>
+#include <custom-keybinds/KeybindsLayer.hpp>
 
 using namespace geode::prelude;
 using namespace std;
+using namespace keybinds;
 
 struct AutoDeafenLevel {
 	bool enabled = false;
 	short levelType; // 0 = Normal, 1 = Local/Editor, 2 = Daily/Weekly, 3 = gauntlet
 	int id = 0;
-	int percentage = 50;
-	AutoDeafenLevel(bool a, short b, int c, int d) { // I am lazy lmao
+	short percentage = 50;
+	AutoDeafenLevel(bool a, short b, int c, short d) { // I am lazy lmao
 		enabled = a;
 		levelType = b;
 		id = c;
@@ -43,7 +50,7 @@ vector<AutoDeafenLevel> loadedAutoDeafenLevels;
 
 bool hasDeafenedThisAttempt = false;
 bool hasDied = false;
-uint32_t deafenKeybind[] = {0xA1, enumKeyCodes::KEY_L};
+vector<uint32_t> deafenKeybind = {enumKeyCodes::KEY_Shift, enumKeyCodes::KEY_H};
 
 void saveLevel(AutoDeafenLevel lvl) {
 
@@ -76,7 +83,7 @@ void saveFile() {
 			file.write(reinterpret_cast<const char*>(&a.enabled), sizeof(bool));
 			file.write(reinterpret_cast<const char*>(&a.levelType), sizeof(short));
 			file.write(reinterpret_cast<const char*>(&a.id), sizeof(int));
-			file.write(reinterpret_cast<const char*>(&a.percentage), sizeof(int));
+			file.write(reinterpret_cast<const char*>(&a.percentage), sizeof(short));
 		}
 		file.close();
 		log::info("Successfully saved .autodeafen file.");
@@ -106,7 +113,7 @@ void loadFile() {
 				file.read(reinterpret_cast<char*>(&level.enabled), sizeof(bool));
 				file.read(reinterpret_cast<char*>(&level.levelType), sizeof(short));
 				file.read(reinterpret_cast<char*>(&level.id), sizeof(int));
-				file.read(reinterpret_cast<char*>(&level.percentage), sizeof(int));
+				file.read(reinterpret_cast<char*>(&level.percentage), sizeof(short));
 				loadedAutoDeafenLevels.push_back(level);
 				// log::debug("{} {} {} {}", level.id, level.levelType, level.enabled, level.percentage);
 			}
@@ -122,23 +129,98 @@ void loadFile() {
 }
 
 $execute {
-	using namespace keybinds;
 	BindManager::get()->registerBindable({
 
         "deafen"_spr,
-        "Deafen",
+        "Discord Deafen Keybind",
         "Your discord deafen keybind.",
         { Keybind::create(KEY_H, Modifier::Shift) },
         "AutoDeafen"
     });
-	
-	Bind* getDeafenKeybind() {
-		auto bind = BindManager::get()->loadBind("Deafen");
-		// auto key = bind.getKey();
-		return bind*;
+	log::info("Registered deafen keybind.");
+}
+
+void updateDeafenKeybind() {
+
+	auto bindPointer = BindManager::get()->getBindable("deafen"_spr)->getDefaults()[0];
+	auto bind = bindPointer.data();
+	if (bind == nullptr) {
+		log::error("Error occured while reloading bind (NULL)");
+		return;
 	}
-	
-	
+	auto d_bind = dynamic_cast<Keybind*>(bind);
+
+	uint32_t key = d_bind -> getKey();
+	Modifier modifiers = d_bind -> getModifiers();
+
+	bool shift = ( modifiers & Modifier::Shift   );
+	bool  ctrl = ( modifiers & Modifier::Control );
+	bool   alt = ( modifiers & Modifier::Alt     );
+
+	log::info("{} {} {} {} {} {}", "Reinvoked deafen keybind with key", key, "and modifiers", shift, ctrl, alt);
+
+	deafenKeybind.clear();
+	if (shift) deafenKeybind.push_back(16);
+	if  (ctrl) deafenKeybind.push_back(17);
+	if   (alt) deafenKeybind.push_back(18);
+	deafenKeybind.push_back(key);
+
+	std::string str(deafenKeybind.begin(), deafenKeybind.end());
+	log::info("{}{}", "Keys (update): ", str);
+
+}
+
+void triggerDeafenKeybind() {
+
+	if (currentlyLoadedLevel.enabled) {
+		log::info("Triggered deafen keybind.");
+
+		std::string str(deafenKeybind.begin(), deafenKeybind.end());
+		log::info("{}{}", "Keys (trigger): ", str);
+
+		const int size = deafenKeybind.size();
+
+		// Modifiers
+		vector<uint32_t> keysPressed;
+
+		// This is a VERY imperfect solution that presses both left and right modifier keys. I mean, hey, it works and it didn't take a lot of Windows API bs, so I ain't complaining.
+		log::info("{}{}", "Size: ", size);
+		for (int i = 0; i < size - 1; i++) {
+
+			if (deafenKeybind[i] > 18 || deafenKeybind[i] < 16) {
+				log::info("{}{}{}{}", "Excluded: #", i, ": ", deafenKeybind[i]);
+				continue; // Modifier keys only.
+			}
+
+			// SHIFT, CTRL, ALT = 16, 17, 18 respectively
+			// This works because LSHIFT, RSHIFT, LCTRL, RCTRL, LMENU, RMENU are all next to each other in the table. Pretty cool.
+
+			const uint32_t keys[] = {
+						160 + ((deafenKeybind[i] - 16) * 2),
+						161 + ((deafenKeybind[i] - 16) * 2)
+			};
+
+			keybd_event(keys[0], 0, 0, 0);
+			keybd_event(keys[1], 0, 0, 0);
+			keysPressed.push_back(keys[0]);
+			keysPressed.push_back(keys[1]);
+
+			log::debug("{}, {}", keys[0], keys[1]);
+		}
+
+		// Discord only allows one non-modifier key, and it's always at the end! How convenient for me.
+		keybd_event(deafenKeybind[size - 1], 0, 0, 0);
+		keybd_event(deafenKeybind[size - 1], 0, 2, 0);
+
+		std::string str2(keysPressed.begin(), keysPressed.end());
+		log::info("{}{}", "Keys (trigger end): ", str2);
+		for (uint32_t key : keysPressed)
+			keybd_event(key, 0, 2, 0);
+
+	}
+
+
+
 }
 
 
@@ -149,27 +231,6 @@ class $modify(LoadingLayer) {
 		return true;
 	}
 };
-
-void triggerDeafenKeybind() {
-
-	if (currentlyLoadedLevel.enabled) {
-		log::info("Triggered deafen keybind.");
-
-		// TODO - make this configurable
-
-		keybd_event(deafenKeybind[0], 0, 0, 0);
-
-		keybd_event(deafenKeybind[1], 0, 0, 0);
-		keybd_event(deafenKeybind[1], 0, 2, 0);
-
-
-		keybd_event(deafenKeybind[0], 0, 2, 0);
-	}
-
-
-
-}
-
 
 class $modify(PlayerObject) {
 	void playerDestroyed(bool p0) {
@@ -182,7 +243,7 @@ class $modify(PlayerObject) {
 					// readability go brr
 					if (	playLayer->m_player1 != nullptr &&
 							this == (playLayer->m_player1) &&
-							(level->m_levelType != GJLevelType::Editor) &&
+							// (level->m_levelType != GJLevelType::Editor) && <- This doesn't do what I thought it did. This just disables it for local (editor/my) levels.
 							!(level->isPlatformer()) &&
 							!(playLayer->m_isPracticeMode)) {
 
@@ -199,6 +260,8 @@ class $modify(PlayLayer) {
 	bool init(GJGameLevel* level, bool p1, bool p2) {
 
 		if (!PlayLayer::init(level, p1, p2)) return false;
+
+		updateDeafenKeybind();
 
 		int id = m_level -> m_levelID.value();
 		short levelType = getLevelType(level);
@@ -263,8 +326,23 @@ class ButtonLayer : public CCLayer {
 			enabledButton -> toggle(!currentlyLoadedLevel.enabled);
 			// log::info("{}", currentlyLoadedLevel.enabled);
 		}
-		void updatePercentage(CCObject* sender) {
-			
+		void editKeybind(CCObject*) {
+			log::info("Attempting to show the enter bind layer.");
+			auto bindable = BindManager::get()->getBindable("deafen"_spr);
+			auto bindPointer = bindable->getDefaults()[0];
+			auto bind = bindPointer.data();
+
+			if (bindable.has_value()) {
+				auto bindableValue = bindable.value();
+
+				auto keybindsLayer = KeybindsLayer::create();
+				auto bindableNode = BindableNode::create(keybindsLayer, bindableValue, 340, false);
+
+				EnterBindLayer::create(bindableNode, bind)->show();
+				log::info("Successfully shown enter bind layer.");
+			} else {
+				log::error("The bindable for autodeafen doesn't exist. This should never happen- if it does, please make an issue!");
+			}
 		}
 };
 
@@ -274,13 +352,8 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 		bool setup(std::string const& value) override {
 
 			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
-			auto menu = CCMenu::create();
 
 			CCPoint topLeftCorner = winSize/2.f-ccp(m_size.width/2.f,-m_size.height/2.f);
-
-			menu -> setPosition( {0, 0} );
-
-			m_mainLayer -> addChild(menu);
 
 			auto topLabel = CCLabelBMFont::create("AutoDeafen", "goldFont.fnt"); 
 			topLabel->setAnchorPoint({0.5, 0.5});
@@ -320,11 +393,31 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			percentageLabel->setScale(0.7f);
 			percentageLabel->setPosition(topLeftCorner + ccp(60, -100));
 
-			menu -> addChild(topLabel);
-			menu -> addChild(enabledLabel);
+
+
+			auto editKeybindButton = CCMenuItemSpriteExtra::create(
+				ButtonSprite::create("Edit Keybind"),
+				this, 
+				menu_selector(ButtonLayer::editKeybind)
+			);
+			editKeybindButton->setAnchorPoint({0.5, 0.5});
+			editKeybindButton->setPosition(topLeftCorner + ccp(142, -150));
+
+
+
+			auto menu = CCMenu::create();
+			menu -> setPosition( {0, 0} );
+
+			
 			menu -> addChild(enabledButton);
-			menu -> addChild(percentageLabel);
 			menu -> addChild(percentageInput);
+			menu -> addChild(editKeybindButton);
+
+			m_mainLayer -> addChild(topLabel);
+			m_mainLayer -> addChild(enabledLabel);
+			m_mainLayer -> addChild(percentageLabel);
+
+			m_mainLayer -> addChild(menu);
 
 			return true;
 		}
