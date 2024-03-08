@@ -49,19 +49,6 @@ bool hasDeafenedThisAttempt = false;
 bool hasDied = false;
 vector<uint32_t> deafenKeybind = {};
 
-void saveLevel(AutoDeafenLevel lvl) {
-
-	for (auto level : loadedAutoDeafenLevels) {
-		if (level.id == lvl.id) {
-			level = lvl;
-			return;
-		}
-	}
-	if (lvl.percentage != 50 || lvl.enabled) // Don't bother wasting file size if it's the default already
-		loadedAutoDeafenLevels.push_back(lvl);
-
-}
-
 short getLevelType(GJGameLevel* level) {
 
 	if (level -> m_levelType != GJLevelType::Saved) return 1;
@@ -157,6 +144,20 @@ void loadFile() {
 	}
 }
 
+void saveLevel(AutoDeafenLevel lvl) {
+
+	for (auto level : loadedAutoDeafenLevels) {
+		if (level.id == lvl.id) {
+			level = lvl;
+			return;
+		}
+	}
+	if (lvl.percentage != 50 || lvl.enabled) // Don't bother wasting file size if it's the default already
+		loadedAutoDeafenLevels.push_back(lvl);
+	saveFile();
+
+}
+
 void sendKeyEvent(uint32_t key, int state) {
 	INPUT inputs[1];
 	inputs[0].type = INPUT_KEYBOARD;
@@ -178,14 +179,12 @@ void triggerDeafenKeybind() {
 		for (int i = 0; i < size - 1; i++) {
 			uint32_t key = deafenKeybind[i];
 			sendKeyEvent(key, 0);
-			// log::debug("{}{}{}", key, " | ", i);
 		}
 
 		// The non-modifier key will always be at the end because of how I coded it.
 		uint32_t nm = deafenKeybind[size - 1];
 		sendKeyEvent(nm, 0);
 		sendKeyEvent(nm, 2);
-		// log::debug("{}{}", "Last: ",  deafenKeybind[size-1]);
 
 		for (int i = 0; i < size - 1; i++) {
 			uint32_t key = deafenKeybind[i];
@@ -215,10 +214,8 @@ class $modify(PlayerObject) {
 				auto level = playLayer->m_level;
 				if (level != nullptr) {
 					
-					// readability go brr
 					if (	playLayer->m_player1 != nullptr &&
 							this == (playLayer->m_player1) &&
-							// (level->m_levelType != GJLevelType::Editor) && <- This doesn't do what I thought it did. This just disables it for local (editor/my) levels.
 							!(level->isPlatformer()) &&
 							!(playLayer->m_isPracticeMode)) {
 
@@ -281,7 +278,6 @@ class $modify(PlayLayer) {
 	void onQuit() {
 		PlayLayer::onQuit();
 		saveLevel(currentlyLoadedLevel);
-		saveFile();
 		currentlyLoadedLevel = AutoDeafenLevel();
 		if (hasDeafenedThisAttempt) {
 			hasDeafenedThisAttempt = false;
@@ -309,7 +305,7 @@ std::string wstring_to_string(const std::wstring& wstr) {
 	return converter.to_bytes(wstr);
 }
 
-
+bool currentlyInMenu = false;
 
 class EditKeybindLayer : public geode::Popup<std::string const&> {
 
@@ -365,6 +361,7 @@ class EditKeybindLayer : public geode::Popup<std::string const&> {
 		}
 		bool setup(std::string const& value) override {
 			this -> setKeyboardEnabled(true);
+			currentlyInMenu = true;
 
 			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
 			CCPoint topLeftCorner = winSize/2.f-ccp(m_size.width/2.f,-m_size.height/2.f);
@@ -394,6 +391,10 @@ class EditKeybindLayer : public geode::Popup<std::string const&> {
 
 			return true;
 		}
+		void onClose(CCObject* a) override {
+			Popup::onClose(a);
+			currentlyInMenu = false;
+		}
 		static EditKeybindLayer* create() {
 			auto ret = new EditKeybindLayer();
 			if (ret && ret->init(300, 200, "", "GJ_square02.png")) {
@@ -404,14 +405,13 @@ class EditKeybindLayer : public geode::Popup<std::string const&> {
 			return nullptr;
 		}
 	public:
-		static void openMenu() {
+		static EditKeybindLayer* openMenu() {
 			auto layer = create();
 			layer -> show();
+			return layer;
 		}
 
 };
-
-
 
 CCMenuItemToggler* enabledButton;
 class ButtonLayer : public CCLayer {
@@ -430,6 +430,7 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			this->onClose(nullptr);
 
 			EditKeybindLayer::openMenu();
+			currentlyInMenu = true;
 
 			// this -> setTouchEnabled(true);
 			// this -> setKeyboardEnabled(true);
@@ -440,7 +441,7 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 		bool setup(std::string const& value) override {
 
 			this->setKeyboardEnabled(true);
-
+			currentlyInMenu = true;
 
 			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
 
@@ -515,6 +516,7 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 		void onClose(CCObject* a) override {
 			Popup::onClose(a);
 			currentlyLoadedLevel.percentage = stoi(percentageInput -> getString());
+			currentlyInMenu = false;
 		}
 		static ConfigLayer* create() {
 			auto ret = new ConfigLayer();
@@ -546,8 +548,15 @@ class $modify(PauseLayer) {
 
 		menu->addChild(btn);
 		menu->updateLayout();
-
-
-		
 	}
+
+	void keyDown(cocos2d::enumKeyCodes p0) {   if (!currentlyInMenu) PauseLayer::keyDown(p0);   }
+	void onResume(CCObject* sender)        {   if (!currentlyInMenu) PauseLayer::onResume(sender);   }
+	void onRestart(CCObject* sender)       {   if (!currentlyInMenu) PauseLayer::onRestart(sender);   }
+	void onRestartFull(CCObject* sender)   {   if (!currentlyInMenu) PauseLayer::onRestartFull(sender);   }
+	void onQuit(CCObject* sender)          {   if (!currentlyInMenu) PauseLayer::onQuit(sender);   }
+	void onPracticeMode(CCObject* sender)  {   if (!currentlyInMenu) PauseLayer::onPracticeMode(sender);   }
+	void onSettings(CCObject* sender)      {   if (!currentlyInMenu) PauseLayer::onSettings(sender);   }
+
+
 };
