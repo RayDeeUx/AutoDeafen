@@ -5,7 +5,11 @@
 #include <vector>
 
 #include <stdio.h>
+#include <locale>
+#include <codecvt>
 #include <string.h>
+#include <windows.h> // screw macos lmao
+#include <WinUser.h>
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
@@ -20,15 +24,8 @@
 #include <cocos2d.h>
 #include <Geode/ui/TextInput.hpp>
 
-// #include <geode.custom-keybinds/include/Keybinds.hpp>
-// #include <../../build/geode-deps/geode.custom-keybinds/src/KeybindsLayer.hpp>
-
-#include <custom-keybinds/Keybinds.hpp>
-#include <custom-keybinds/KeybindsLayer.hpp>
-
 using namespace geode::prelude;
 using namespace std;
-using namespace keybinds;
 
 struct AutoDeafenLevel {
 	bool enabled = false;
@@ -50,11 +47,18 @@ vector<AutoDeafenLevel> loadedAutoDeafenLevels;
 
 bool hasDeafenedThisAttempt = false;
 bool hasDied = false;
-vector<uint32_t> deafenKeybind = {enumKeyCodes::KEY_Shift, enumKeyCodes::KEY_H};
+vector<uint32_t> deafenKeybind = {};
 
 void saveLevel(AutoDeafenLevel lvl) {
 
-	loadedAutoDeafenLevels.push_back(lvl);
+	for (auto level : loadedAutoDeafenLevels) {
+		if (level.id == lvl.id) {
+			level = lvl;
+			return;
+		}
+	}
+	if (lvl.percentage != 50 || lvl.enabled) // Don't bother wasting file size if it's the default already
+		loadedAutoDeafenLevels.push_back(lvl);
 
 }
 
@@ -73,12 +77,30 @@ void saveFile() {
 	auto path = Mod::get() -> getSaveDir();
 	path /= ".autodeafen";
 
-	log::info("{}", "Saving .autodeafen file to " + path.string());
+	// log::info("{}", "Saving .autodeafen file to " + path.string());
 
 	ofstream file(path);
 	if (file.is_open()) {
-
 		file.write("ad1", sizeof("ad1")); // File Header - autodeafen file version 1
+
+
+
+		int size = deafenKeybind.size();
+
+		std::string keycodes = "";
+		for (const uint32_t key : deafenKeybind)
+			keycodes = keycodes + to_string(key) + ", ";
+		keycodes.pop_back();keycodes.pop_back();
+
+		// log::info("{}{}", "Keys: ", keycodes);
+		for (uint32_t key : deafenKeybind)
+			file.write(reinterpret_cast<const char*>(&key), sizeof(uint32_t));
+		uint32_t filler = 0xFFFFFFFF;
+		for (int i = 0; i < (4 - size); i++)
+			file.write(reinterpret_cast<const char*>(&filler), sizeof(uint32_t)); // Fillers
+
+
+
 		for (AutoDeafenLevel const& a : loadedAutoDeafenLevels) {
 			file.write(reinterpret_cast<const char*>(&a.enabled), sizeof(bool));
 			file.write(reinterpret_cast<const char*>(&a.levelType), sizeof(short));
@@ -86,7 +108,7 @@ void saveFile() {
 			file.write(reinterpret_cast<const char*>(&a.percentage), sizeof(short));
 		}
 		file.close();
-		log::info("Successfully saved .autodeafen file.");
+		log::debug("Successfully saved .autodeafen file.");
 
 	} else {
 		log::error("AutoDeafen file failed when trying to open and save.");
@@ -108,6 +130,12 @@ void loadFile() {
 
 		if (strncmp(header, "ad1", 4) == 0) {
 			log::info("Loading autodeafen file version 1.");
+			for (int i = 0; i < 4; i++) {
+				uint32_t r;
+				file.read(reinterpret_cast<char*>(&r), sizeof(uint32_t));
+				if (r == 0xFFFFFFFF) continue;
+				else deafenKeybind.push_back(r);
+			}
 			while (file.good()) {
 				AutoDeafenLevel level;
 				file.read(reinterpret_cast<char*>(&level.enabled), sizeof(bool));
@@ -125,49 +153,19 @@ void loadFile() {
 
 	} else {
 		log::warn("AutoDeafen file failed when trying to open and load (probably just doesn't exist). Will create a new one on exit.");
+		deafenKeybind = {0xA1, 0x48};
 	}
 }
 
-$execute {
-	BindManager::get()->registerBindable({
+void sendKeyEvent(uint32_t key, int state) {
+	INPUT inputs[1];
+	inputs[0].type = INPUT_KEYBOARD;
+	if (key == 163 || key == 165) inputs[0].ki.dwFlags = state | KEYEVENTF_EXTENDEDKEY; 
+	else inputs[0].ki.dwFlags = state;
+	inputs[0].ki.wScan = 0;
+	inputs[0].ki.wVk = key;
 
-        "deafen"_spr,
-        "Discord Deafen Keybind",
-        "Your discord deafen keybind.",
-        { Keybind::create(KEY_H, Modifier::Shift) },
-        "AutoDeafen"
-    });
-	log::info("Registered deafen keybind.");
-}
-
-void updateDeafenKeybind() {
-
-	auto bindPointer = BindManager::get()->getBindable("deafen"_spr)->getDefaults()[0];
-	auto bind = bindPointer.data();
-	if (bind == nullptr) {
-		log::error("Error occured while reloading bind (NULL)");
-		return;
-	}
-	auto d_bind = dynamic_cast<Keybind*>(bind);
-
-	uint32_t key = d_bind -> getKey();
-	Modifier modifiers = d_bind -> getModifiers();
-
-	bool shift = ( modifiers & Modifier::Shift   );
-	bool  ctrl = ( modifiers & Modifier::Control );
-	bool   alt = ( modifiers & Modifier::Alt     );
-
-	log::info("{} {} {} {} {} {}", "Reinvoked deafen keybind with key", key, "and modifiers", shift, ctrl, alt);
-
-	deafenKeybind.clear();
-	if (shift) deafenKeybind.push_back(16);
-	if  (ctrl) deafenKeybind.push_back(17);
-	if   (alt) deafenKeybind.push_back(18);
-	deafenKeybind.push_back(key);
-
-	std::string str(deafenKeybind.begin(), deafenKeybind.end());
-	log::info("{}{}", "Keys (update): ", str);
-
+	SendInput(1, inputs, sizeof(INPUT));
 }
 
 void triggerDeafenKeybind() {
@@ -175,47 +173,24 @@ void triggerDeafenKeybind() {
 	if (currentlyLoadedLevel.enabled) {
 		log::info("Triggered deafen keybind.");
 
-		std::string str(deafenKeybind.begin(), deafenKeybind.end());
-		log::info("{}{}", "Keys (trigger): ", str);
-
 		const int size = deafenKeybind.size();
 
-		// Modifiers
-		vector<uint32_t> keysPressed;
-
-		// This is a VERY imperfect solution that presses both left and right modifier keys. I mean, hey, it works and it didn't take a lot of Windows API bs, so I ain't complaining.
-		log::info("{}{}", "Size: ", size);
 		for (int i = 0; i < size - 1; i++) {
-
-			if (deafenKeybind[i] > 18 || deafenKeybind[i] < 16) {
-				log::info("{}{}{}{}", "Excluded: #", i, ": ", deafenKeybind[i]);
-				continue; // Modifier keys only.
-			}
-
-			// SHIFT, CTRL, ALT = 16, 17, 18 respectively
-			// This works because LSHIFT, RSHIFT, LCTRL, RCTRL, LMENU, RMENU are all next to each other in the table. Pretty cool.
-
-			const uint32_t keys[] = {
-						160 + ((deafenKeybind[i] - 16) * 2),
-						161 + ((deafenKeybind[i] - 16) * 2)
-			};
-
-			keybd_event(keys[0], 0, 0, 0);
-			keybd_event(keys[1], 0, 0, 0);
-			keysPressed.push_back(keys[0]);
-			keysPressed.push_back(keys[1]);
-
-			log::debug("{}, {}", keys[0], keys[1]);
+			uint32_t key = deafenKeybind[i];
+			sendKeyEvent(key, 0);
+			// log::debug("{}{}{}", key, " | ", i);
 		}
 
-		// Discord only allows one non-modifier key, and it's always at the end! How convenient for me.
-		keybd_event(deafenKeybind[size - 1], 0, 0, 0);
-		keybd_event(deafenKeybind[size - 1], 0, 2, 0);
+		// The non-modifier key will always be at the end because of how I coded it.
+		uint32_t nm = deafenKeybind[size - 1];
+		sendKeyEvent(nm, 0);
+		sendKeyEvent(nm, 2);
+		// log::debug("{}{}", "Last: ",  deafenKeybind[size-1]);
 
-		std::string str2(keysPressed.begin(), keysPressed.end());
-		log::info("{}{}", "Keys (trigger end): ", str2);
-		for (uint32_t key : keysPressed)
-			keybd_event(key, 0, 2, 0);
+		for (int i = 0; i < size - 1; i++) {
+			uint32_t key = deafenKeybind[i];
+			sendKeyEvent(key, 2);
+		}
 
 	}
 
@@ -260,8 +235,6 @@ class $modify(PlayLayer) {
 	bool init(GJGameLevel* level, bool p1, bool p2) {
 
 		if (!PlayLayer::init(level, p1, p2)) return false;
-
-		updateDeafenKeybind();
 
 		int id = m_level -> m_levelID.value();
 		short levelType = getLevelType(level);
@@ -318,38 +291,156 @@ class $modify(PlayLayer) {
 	
 };
 
+
+
+// Shamelessly copied from https://gist.github.com/radj307/201e82048751713eb522386b46d94955
+std::wstring KeyNameFromScanCode(const unsigned scanCode) {
+    wchar_t buf[32]{};
+    GetKeyNameTextW(scanCode << 16, buf, sizeof(buf));
+    return{ buf };
+}
+std::wstring KeyNameFromVirtualKeyCode(const unsigned virtualKeyCode){
+    return KeyNameFromScanCode(MapVirtualKeyW(virtualKeyCode, MAPVK_VK_TO_VSC));
+}
+
+// Shamelessly copied from chatgpt (i am lazy)
+std::string wstring_to_string(const std::wstring& wstr) {
+	std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+	return converter.to_bytes(wstr);
+}
+
+
+
+class EditKeybindLayer : public geode::Popup<std::string const&> {
+
+	public:
+		CCLabelBMFont* primaryLabel;
+		CCLabelBMFont* secondaryLabel;
+		CCLabelBMFont* confirmationLabel;
+		bool alreadyUsed = false;
+	protected:
+		virtual void keyDown(cocos2d::enumKeyCodes key) {
+			
+			if (alreadyUsed) return;
+
+			vector<uint32_t> keys = {}; // Max 4 keys
+
+			for (uint32_t i = 0; i < 6; i++)
+				if (GetKeyState(160 + i) < 0 && keys.size() < 3) 
+					keys.push_back(160 + i);
+			keys.push_back(key);
+
+
+
+			std::string str = "";
+			std::string keycodes = "";
+
+			for (const uint32_t key : keys) {
+				str = str + wstring_to_string(KeyNameFromVirtualKeyCode(key)) + " + ";
+				keycodes = keycodes + to_string(key) + ", ";
+			}
+			str.pop_back();str.pop_back();str.pop_back();
+			keycodes.pop_back();keycodes.pop_back();
+
+			
+
+			log::debug("{}{}{}{}", "Keys: ", str, " ||  Keycodes: ", keycodes );
+
+			char* strarray = new char[str.length() + 1];
+			strcpy(strarray, str.c_str());
+
+			for (uint32_t key : keys) {
+				if (key > 0x404) {
+					secondaryLabel->setString("Unsupported key in keybind!");
+					confirmationLabel->setString("Change your keybind and try again!");
+					return;
+				}
+			}
+
+			secondaryLabel->setString( strarray, true );
+			confirmationLabel->setString("Saved Keybind. You may exit this menu.");
+			deafenKeybind = keys;
+			alreadyUsed = true;
+
+		}
+		bool setup(std::string const& value) override {
+			this -> setKeyboardEnabled(true);
+
+			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
+			CCPoint topLeftCorner = winSize/2.f-ccp(m_size.width/2.f,-m_size.height/2.f);
+
+			primaryLabel = CCLabelBMFont::create("Edit Keybind", "goldFont.fnt");
+			primaryLabel->setAnchorPoint({0.5, 0.5});
+			primaryLabel->setScale(1.0f);
+			primaryLabel->setPosition(topLeftCorner + ccp(142, -20)); // 80 = center
+
+			std::string str = "";
+			for (const uint32_t key : deafenKeybind)
+				str = str + wstring_to_string(KeyNameFromVirtualKeyCode(key)) + " + ";
+
+			secondaryLabel = CCLabelBMFont::create("Press your deafen keybind...", "bigFont.fnt"); 
+			secondaryLabel->setAnchorPoint({0.5, 0.5});
+			secondaryLabel->setScale(0.5f);
+			secondaryLabel->setPosition(topLeftCorner + ccp(150, -100));
+
+			confirmationLabel = CCLabelBMFont::create("", "goldFont.fnt"); 
+			confirmationLabel->setAnchorPoint({0.5, 0.5});
+			confirmationLabel->setScale(0.5f);
+			confirmationLabel->setPosition(topLeftCorner + ccp(150, -150));
+
+			m_mainLayer -> addChild(primaryLabel);
+			m_mainLayer -> addChild(secondaryLabel);
+			m_mainLayer -> addChild(confirmationLabel);
+
+			return true;
+		}
+		static EditKeybindLayer* create() {
+			auto ret = new EditKeybindLayer();
+			if (ret && ret->init(300, 200, "", "GJ_square02.png")) {
+				ret->autorelease();
+				return ret;
+			}
+			CC_SAFE_DELETE(ret);
+			return nullptr;
+		}
+	public:
+		static void openMenu() {
+			auto layer = create();
+			layer -> show();
+		}
+
+};
+
+
+
 CCMenuItemToggler* enabledButton;
 class ButtonLayer : public CCLayer {
 	public:
 		void toggleEnabled(CCObject* sender) {
 			currentlyLoadedLevel.enabled = !currentlyLoadedLevel.enabled;
 			enabledButton -> toggle(!currentlyLoadedLevel.enabled);
-			// log::info("{}", currentlyLoadedLevel.enabled);
-		}
-		void editKeybind(CCObject*) {
-			log::info("Attempting to show the enter bind layer.");
-			auto bindable = BindManager::get()->getBindable("deafen"_spr);
-			auto bindPointer = bindable->getDefaults()[0];
-			auto bind = bindPointer.data();
-
-			if (bindable.has_value()) {
-				auto bindableValue = bindable.value();
-
-				auto keybindsLayer = KeybindsLayer::create();
-				auto bindableNode = BindableNode::create(keybindsLayer, bindableValue, 340, false);
-
-				EnterBindLayer::create(bindableNode, bind)->show();
-				log::info("Successfully shown enter bind layer.");
-			} else {
-				log::error("The bindable for autodeafen doesn't exist. This should never happen- if it does, please make an issue!");
-			}
-		}
+		};
 };
+
 
 TextInput* percentageInput;
 class ConfigLayer : public geode::Popup<std::string const&> {
+	public:
+		void editKeybind(CCObject*) {
+			this->onClose(nullptr);
+
+			EditKeybindLayer::openMenu();
+
+			// this -> setTouchEnabled(true);
+			// this -> setKeyboardEnabled(true);
+			// popup -> setTouchEnabled(true);
+			// popup -> setKeyboardEnabled(true); // may as well just enable all of them
+		};
 	protected:
 		bool setup(std::string const& value) override {
+
+			this->setKeyboardEnabled(true);
+
 
 			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
 
@@ -398,7 +489,7 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			auto editKeybindButton = CCMenuItemSpriteExtra::create(
 				ButtonSprite::create("Edit Keybind"),
 				this, 
-				menu_selector(ButtonLayer::editKeybind)
+				menu_selector(ConfigLayer::editKeybind)
 			);
 			editKeybindButton->setAnchorPoint({0.5, 0.5});
 			editKeybindButton->setPosition(topLeftCorner + ccp(142, -150));
@@ -455,6 +546,7 @@ class $modify(PauseLayer) {
 
 		menu->addChild(btn);
 		menu->updateLayout();
+
 
 		
 	}

@@ -6,12 +6,5 @@
   "id": "lynxdeer.autodeafen",
   "name": "AutoDeafen",
   "version": "v1.0.0",
-  "early-load": true,
-  "dependencies": [
-	{
-		"id": "geode.custom-keybinds",
-		"version": "v1.5.2",
-    "importance": "required"
-	}
-  ]
+  "early-load": true
 }
