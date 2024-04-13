@@ -16,6 +16,7 @@
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/LoadingLayer.hpp>
+#include <Geode/modify/GManager.hpp>
 #include <Geode/cocos/cocoa/CCObject.h>
 #include <Geode/binding/CCMenuItemToggler.hpp>
 #include <Geode/ui/GeodeUI.hpp>
@@ -59,6 +60,17 @@ short getLevelType(GJGameLevel* level) {
 
 }
 
+void runEmptyDebugs() {
+	log::info("{}", "Running debugs");
+	log::info("{}", "Loaded levels are:");
+	for (AutoDeafenLevel level : loadedAutoDeafenLevels) {
+		log::info("Id {} of type {} with enabled {} and percentage {}", level.id, level.levelType, level.enabled, level.percentage);
+	}
+	log::info("{}", "Currently loaded level is:");
+	log::info("Id {} of type {} with enabled {} and percentage {}", currentlyLoadedLevel.id, currentlyLoadedLevel.levelType, currentlyLoadedLevel.enabled, currentlyLoadedLevel.percentage);
+
+}
+
 void saveFile() {
 
 	auto path = Mod::get() -> getSaveDir();
@@ -86,9 +98,8 @@ void saveFile() {
 		for (int i = 0; i < (4 - size); i++)
 			file.write(reinterpret_cast<const char*>(&filler), sizeof(uint32_t)); // Fillers
 
-
-
 		for (AutoDeafenLevel const& a : loadedAutoDeafenLevels) {
+
 			file.write(reinterpret_cast<const char*>(&a.enabled), sizeof(bool));
 			file.write(reinterpret_cast<const char*>(&a.levelType), sizeof(short));
 			file.write(reinterpret_cast<const char*>(&a.id), sizeof(int));
@@ -140,21 +151,35 @@ void loadFile() {
 
 	} else {
 		log::warn("AutoDeafen file failed when trying to open and load (probably just doesn't exist). Will create a new one on exit.");
-		deafenKeybind = {0xA1, 0x48};
+		// deafenKeybind = {0xA1, 0x48};
+		// Shift + H is no longer the default, now it just isn't set, because I have had 6 different people dm me asking about it because they didn't know they had to change their keybind.
 	}
 }
 
+
 void saveLevel(AutoDeafenLevel lvl) {
 
-	for (auto level : loadedAutoDeafenLevels) {
-		if (level.id == lvl.id) {
-			level = lvl;
+	log::info("Saving level {}", lvl.id);
+
+	// Used to be an issue where this wouldn't work. The solution was making it a pointer.
+	for (auto& level : loadedAutoDeafenLevels) {
+		if (level.id == lvl.id && level.levelType == lvl.levelType) {
+			level.percentage = lvl.percentage;
+			level.enabled = lvl.enabled;
+			// log::info("Found and replaced level {} with percentage {}, enabled {}", lvl.id, lvl.percentage, lvl.enabled);
+			// log::info("End replacement is now {}, {}", level.percentage, level.enabled);
 			return;
 		}
 	}
-	if (lvl.percentage != 50 || lvl.enabled) // Don't bother wasting file size if it's the default already
+
+	bool const& enabledByDefault = Mod::get()->getSettingValue<bool>("Enabled by Default");
+	short const& defaultPercentage = static_cast<short>(Mod::get()->getSettingValue<int64_t>("Default Percentage") & 0xFFFF);
+	// log::info("Saving level {} with enabled: {}, percentage: {}", lvl.id, lvl.enabled, lvl.percentage);
+	// log::info("Default values are enabled: {}, percentage: {}", enabledByDefault, defaultPercentage);
+	if ( !(lvl.enabled == enabledByDefault && lvl.percentage == defaultPercentage) ) // Don't bother wasting file size if it's the default already
 		loadedAutoDeafenLevels.push_back(lvl);
-	saveFile();
+	runEmptyDebugs();
+	// Level saving is now done on exit because it's much faster. Might also make a feature where it starts removing really old levels past a certain limit (like 1000 or something)
 
 }
 
@@ -227,6 +252,15 @@ class $modify(PlayerObject) {
 	}
 };
 
+class $modify(GManager) {
+	
+	TodoReturn saveGMTo(gd::string p0) {
+		saveFile();
+		return GManager::saveGMTo(p0);
+	}
+
+};
+
 class $modify(PlayLayer) {
 
 	bool init(GJGameLevel* level, bool p1, bool p2) {
@@ -239,7 +273,7 @@ class $modify(PlayLayer) {
 		for (AutoDeafenLevel level : loadedAutoDeafenLevels)
 			if (level.id == id && level.levelType == levelType) { currentlyLoadedLevel = level; return true; }
 
-		currentlyLoadedLevel = AutoDeafenLevel(false, levelType, id, 50);
+		currentlyLoadedLevel = AutoDeafenLevel(Mod::get()->getSettingValue<bool>("Enabled by Default"), levelType, id, static_cast<short>(Mod::get()->getSettingValue<int64_t>("Default Percentage") & 0xFFFF) );
 		hasDeafenedThisAttempt = false;
 
 		return true;
@@ -340,7 +374,7 @@ class EditKeybindLayer : public geode::Popup<std::string const&> {
 
 			
 
-			log::debug("{}{}{}{}", "Keys: ", str, " ||  Keycodes: ", keycodes );
+			// log::debug("{}{}{}{}", "Keys: ", str, " ||  Keycodes: ", keycodes );
 
 			char* strarray = new char[str.length() + 1];
 			strcpy(strarray, str.c_str());
@@ -354,7 +388,7 @@ class EditKeybindLayer : public geode::Popup<std::string const&> {
 			}
 
 			secondaryLabel->setString( strarray, true );
-			confirmationLabel->setString("Saved Keybind. You may exit this menu.");
+			confirmationLabel->setString("Saved Keybind. You may close this menu.");
 			deafenKeybind = keys;
 			alreadyUsed = true;
 
@@ -417,10 +451,14 @@ CCMenuItemToggler* enabledButton;
 class ButtonLayer : public CCLayer {
 	public:
 		void toggleEnabled(CCObject* sender) {
-			currentlyLoadedLevel.enabled = !currentlyLoadedLevel.enabled;
-			enabledButton -> toggle(!currentlyLoadedLevel.enabled);
+			if (deafenKeybind.size() > 0) {
+				currentlyLoadedLevel.enabled = !currentlyLoadedLevel.enabled;
+				enabledButton -> toggle(!currentlyLoadedLevel.enabled);
+			}
 		};
 };
+
+
 
 
 TextInput* percentageInput;
@@ -437,55 +475,80 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			// popup -> setTouchEnabled(true);
 			// popup -> setKeyboardEnabled(true); // may as well just enable all of them
 		};
+		void runDebugs(CCObject*) {
+			log::info("{}", "Running debugs");
+			log::info("{}", "Loaded levels are:");
+			for (AutoDeafenLevel level : loadedAutoDeafenLevels) {
+				log::info("Id {} of type {} with enabled {} and percentage {}", level.id, level.levelType, level.enabled, level.percentage);
+			}
+			log::info("{}", "Currently loaded level is:");
+			log::info("Id {} of type {} with enabled {} and percentage {}", currentlyLoadedLevel.id, currentlyLoadedLevel.levelType, currentlyLoadedLevel.enabled, currentlyLoadedLevel.percentage);
+
+		}
 	protected:
 		bool setup(std::string const& value) override {
 
 			this->setKeyboardEnabled(true);
 			currentlyInMenu = true;
 
+			bool keybindSet = deafenKeybind.size() > 0;
+
 			auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
 
 			CCPoint topLeftCorner = winSize/2.f-ccp(m_size.width/2.f,-m_size.height/2.f);
+			CCPoint topMiddle = ccp(winSize.width/2.0f, winSize.height/2.0f + m_size.height/2.f);
 
 			auto topLabel = CCLabelBMFont::create("AutoDeafen", "goldFont.fnt"); 
 			topLabel->setAnchorPoint({0.5, 0.5});
 			topLabel->setScale(1.0f);
 			topLabel->setPosition(topLeftCorner + ccp(142, 5));
 
-			auto enabledLabel = CCLabelBMFont::create("Enabled", "bigFont.fnt"); 
-			enabledLabel->setAnchorPoint({0, 0.5});
-			enabledLabel->setScale(0.7f);
-			enabledLabel->setPosition(topLeftCorner + ccp(60, -60)); // 80 = center
+			CCLabelBMFont* enabledLabel;
+			CCLabelBMFont* percentageLabel;
+			CCLabelBMFont* keybindLabel;
 
-			enabledButton = CCMenuItemToggler::create(
-				CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png"),
-				CCSprite::createWithSpriteFrameName("GJ_checkOn_001.png"),
-				this,
-				menu_selector(ButtonLayer::toggleEnabled)
-			);
+			if (keybindSet) {
+				enabledLabel = CCLabelBMFont::create("Enabled", "bigFont.fnt"); 
+				enabledLabel->setAnchorPoint({0, 0.5});
+				enabledLabel->setScale(0.7f);
+				enabledLabel->setPosition(topLeftCorner + ccp(60, -60)); // 80 = center
 
-			enabledButton -> setPosition(enabledLabel->getPosition() + ccp(140,0));
-			enabledButton -> setScale(0.85f);
-			enabledButton -> setClickable(true);
-			enabledButton -> toggle(currentlyLoadedLevel.enabled);
+				enabledButton = CCMenuItemToggler::create(
+					CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png"),
+					CCSprite::createWithSpriteFrameName("GJ_checkOn_001.png"),
+					this,
+					menu_selector(ButtonLayer::toggleEnabled)
+				);
 
-
-
-			percentageInput = TextInput::create(100.f, "%");
-
-			percentageInput -> setFilter("0123456789");
-			percentageInput -> setPosition(enabledButton->getPosition() + ccp(0, -40));
-			percentageInput -> setScale(0.85f);
-			percentageInput -> setMaxCharCount(2);
-			percentageInput -> setEnabled(true);
-			percentageInput -> setString(to_string(currentlyLoadedLevel.percentage));
-
-			auto percentageLabel = CCLabelBMFont::create("Percent", "bigFont.fnt"); 
-			percentageLabel->setAnchorPoint({0, 0.5});
-			percentageLabel->setScale(0.7f);
-			percentageLabel->setPosition(topLeftCorner + ccp(60, -100));
+				enabledButton -> setPosition(enabledLabel->getPosition() + ccp(140,0));
+				enabledButton -> setScale(0.85f);
+				enabledButton -> setClickable(true);
+				enabledButton -> toggle(currentlyLoadedLevel.enabled);
 
 
+
+				percentageInput = TextInput::create(100.f, "%");
+
+				percentageInput -> setFilter("0123456789");
+				percentageInput -> setPosition(enabledButton->getPosition() + ccp(0, -40));
+				percentageInput -> setScale(0.85f);
+				percentageInput -> setMaxCharCount(2);
+				percentageInput -> setEnabled(true);
+				percentageInput -> setString(to_string(currentlyLoadedLevel.percentage));
+
+				percentageLabel = CCLabelBMFont::create("Percent", "bigFont.fnt"); 
+				percentageLabel->setAnchorPoint({0, 0.5});
+				percentageLabel->setScale(0.7f);
+				percentageLabel->setPosition(topLeftCorner + ccp(60, -100));
+			} else {
+				keybindLabel = CCLabelBMFont::create("To use the mod, press the\n[Edit Keybind] button, then press\nyour Discord Toggle Deafen Keybind \nset in Discord Settings > Keybinds", "bigFont.fnt"); 
+				// Can't figure out colors :(
+				// keybindLabel = CCLabelBMFont::create("To use the mod, press the \n<cg>Edit Keybind</c> button\nand press your \ndiscord <co>Toggle Deafen</c> keybind \nset in \n<cb>Discord Settings</c> > <cp>Keybinds</c>", "chatFont-uhd.fnt"); 
+				keybindLabel->setAnchorPoint({0.5, 0});
+				keybindLabel->setScale(0.4f);
+				keybindLabel->setAlignment(kCCTextAlignmentCenter);
+				keybindLabel->setPosition(topMiddle + ccp(0, -100));
+			}
 
 			auto editKeybindButton = CCMenuItemSpriteExtra::create(
 				ButtonSprite::create("Edit Keybind"),
@@ -495,19 +558,35 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			editKeybindButton->setAnchorPoint({0.5, 0.5});
 			editKeybindButton->setPosition(topLeftCorner + ccp(142, -150));
 
+			// auto debugButton = CCMenuItemSpriteExtra::create(
+			// 	ButtonSprite::create("Debug"),
+			// 	this, 
+			// 	menu_selector(ConfigLayer::runDebugs)
+			// );
+			// debugButton->setAnchorPoint({0.5, 0.5});
+			// debugButton->setPosition(topLeftCorner + ccp(142, -175));
+
 
 
 			auto menu = CCMenu::create();
 			menu -> setPosition( {0, 0} );
 
 			
-			menu -> addChild(enabledButton);
-			menu -> addChild(percentageInput);
-			menu -> addChild(editKeybindButton);
+			if (keybindSet) {
+				menu -> addChild(enabledButton);
+				menu -> addChild(percentageInput);
+			} else {
 
+			}
+			menu -> addChild(editKeybindButton);
+			// menu -> addChild(debugButton);
 			m_mainLayer -> addChild(topLabel);
-			m_mainLayer -> addChild(enabledLabel);
-			m_mainLayer -> addChild(percentageLabel);
+			if (keybindSet) {
+				m_mainLayer -> addChild(enabledLabel);
+				m_mainLayer -> addChild(percentageLabel);
+			} else {
+				m_mainLayer -> addChild(keybindLabel);
+			}
 
 			m_mainLayer -> addChild(menu);
 
@@ -515,7 +594,8 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 		}
 		void onClose(CCObject* a) override {
 			Popup::onClose(a);
-			currentlyLoadedLevel.percentage = stoi(percentageInput -> getString());
+			if (percentageInput != nullptr)
+				currentlyLoadedLevel.percentage = stoi(percentageInput -> getString());
 			currentlyInMenu = false;
 		}
 		static ConfigLayer* create() {
