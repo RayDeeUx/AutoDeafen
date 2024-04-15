@@ -8,7 +8,7 @@
 #include <locale>
 #include <codecvt>
 #include <string.h>
-#include <windows.h> // screw macos lmao
+#include <windows.h>
 #include <WinUser.h>
 
 #include <Geode/Geode.hpp>
@@ -68,7 +68,6 @@ void runEmptyDebugs() {
 	}
 	log::info("{}", "Currently loaded level is:");
 	log::info("Id {} of type {} with enabled {} and percentage {}", currentlyLoadedLevel.id, currentlyLoadedLevel.levelType, currentlyLoadedLevel.enabled, currentlyLoadedLevel.percentage);
-
 }
 
 void saveFile() {
@@ -178,7 +177,7 @@ void saveLevel(AutoDeafenLevel lvl) {
 	// log::info("Default values are enabled: {}, percentage: {}", enabledByDefault, defaultPercentage);
 	if ( !(lvl.enabled == enabledByDefault && lvl.percentage == defaultPercentage) ) // Don't bother wasting file size if it's the default already
 		loadedAutoDeafenLevels.push_back(lvl);
-	runEmptyDebugs();
+	if (Mod::get()->getSettingValue<bool>("Logging")) { runEmptyDebugs(); }
 	// Level saving is now done on exit because it's much faster. Might also make a feature where it starts removing really old levels past a certain limit (like 1000 or something)
 
 }
@@ -476,16 +475,15 @@ class ConfigLayer : public geode::Popup<std::string const&> {
 			// popup -> setTouchEnabled(true);
 			// popup -> setKeyboardEnabled(true); // may as well just enable all of them
 		};
-		void runDebugs(CCObject*) {
-			log::info("{}", "Running debugs");
-			log::info("{}", "Loaded levels are:");
-			for (AutoDeafenLevel level : loadedAutoDeafenLevels) {
-				log::info("Id {} of type {} with enabled {} and percentage {}", level.id, level.levelType, level.enabled, level.percentage);
-			}
-			log::info("{}", "Currently loaded level is:");
-			log::info("Id {} of type {} with enabled {} and percentage {}", currentlyLoadedLevel.id, currentlyLoadedLevel.levelType, currentlyLoadedLevel.enabled, currentlyLoadedLevel.percentage);
-
-		}
+		// void runDebugs(CCObject*) {
+		// 	log::info("{}", "Running debugs");
+		// 	log::info("{}", "Loaded levels are:");
+		// 	for (AutoDeafenLevel level : loadedAutoDeafenLevels) {
+		// 		log::info("Id {} of type {} with enabled {} and percentage {}", level.id, level.levelType, level.enabled, level.percentage);
+		// 	}
+		// 	log::info("{}", "Currently loaded level is:");
+		// 	log::info("Id {} of type {} with enabled {} and percentage {}", currentlyLoadedLevel.id, currentlyLoadedLevel.levelType, currentlyLoadedLevel.enabled, currentlyLoadedLevel.percentage);
+		// }
 	protected:
 		bool setup(std::string const& value) override {
 
